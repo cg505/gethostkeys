@@ -5,3 +5,4 @@ authors = ["Christopher Cooper <christopher.c.cooper@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+curl = "0.4.19"
