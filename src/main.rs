@@ -43,19 +43,110 @@ fn main() {
 
 	create_dir_all(ssh_dir.join("hkdb")).unwrap();
 
-	let mut file = OpenOptions::new()
+	let mut file = match OpenOptions::new()
 		.read(true)
-		.write(true)
-		.create(true)
-		.truncate(true)
-		.open(ssh_dir.join("hkdb").join("ocf.berkeley.edu")).unwrap();
+		.open(ssh_dir.join("hkconfig"))
+	{
+		Ok(file) => file,
+		Err(_) => {
+			println!("wtf");
+			return;
+		},
+	};
+
+	let mut reader = BufReader::new(file);
+
+	'file_scan: loop {
+		println!("top loop");
+		let mut line = String::new();
+		// search forward to Host line
+		loop {
+			if reader.read_line(&mut line).unwrap() == 0 {
+				break 'file_scan;
+			}
+			if line.starts_with("Host ") {
+				// next line should contain dest url
+				break;
+			}
+		}
+		line = String::new();
+		if reader.read_line(&mut line).unwrap() == 0 {
+			break 'file_scan;
+		}
+		let mut parts = line.splitn(2, "#");
+		if match parts.next() {
+			Some(space) => space.trim().len() != 0,
+			None => true,
+		} {
+			// todo: recover if this line is a Host line
+			println!("unable to parse hkconfig file: no comment after Host line");
+			break 'file_scan;
+		}
+		// lmao refactor plzzz
+		let url = match parts.next() {
+			Some(part) => part.trim(),
+			None => {
+				println!("where is the url dummy");
+				break 'file_scan;
+			},
+		};
+		let mut dest = String::new();
+		loop {
+			let mut line = String::new();
+			if reader.read_line(&mut line).unwrap() == 0 {
+				println!("ended looking for dest");
+				break 'file_scan;
+			}
+			println!("now parsing config line: {}", line);
+			match line.chars().next() {
+				None => continue,
+				Some(car) => if !car.is_whitespace() {
+					println!("where is the config! dummy");
+					break 'file_scan;
+				} else {
+					// todo: quotes? idk
+					let mut parts = line.split_whitespace();
+					match parts.next() {
+						None => continue,
+						Some(first) => if first != "UserKnownHostsFile" {
+							println!("wrong config value");
+							continue;
+						},
+					};
+					println!("found right line");
+					match parts.next() {
+						None => continue, // wtf
+						Some(second) => {
+							println!("it's {}!", second);
+							dest = second.to_string();
+							break;
+						},
+					};
+				}
+			};
+		}
+		if !dest.starts_with("hkdb/") {
+			println!("heads up! stuff not going in hkdb");
+			// todo confirm mb
+		}
+
+		println!("fetching from {} to {}", url, dest);
+
+		let mut file = OpenOptions::new()
+			.read(true)
+			.write(true)
+			.create(true)
+			.truncate(true)
+			.open(ssh_dir.join(dest)).unwrap();
 
 
-	let mut easy = Easy::new();
-	easy.url("https://failure.ocf.berkeley.edu/ssh_known_hosts").unwrap();
-	let mut transfer = easy.transfer();
-	transfer.write_function(|data| {
-		Ok(file.write(data).unwrap())
-	}).unwrap();
-	transfer.perform().unwrap();
+		let mut easy = Easy::new();
+		easy.url(url).unwrap();
+		let mut transfer = easy.transfer();
+		transfer.write_function(|data| {
+			Ok(file.write(data).unwrap())
+		}).unwrap();
+		transfer.perform().unwrap();
+	}
+	println!("top loop done");
 }
